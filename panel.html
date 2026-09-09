@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Top-Down Viewer</title>
+
+<!--
+  Trimble Connect Workspace API (unified package).
+  Docs: https://components.connect.trimble.com/trimble-connect-workspace-api/index.html
+  This IIFE build exposes a global `WorkspaceAPI` object.
+-->
+<script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
+
+<style>
+  :root {
+    --tc-blue: #0063a3;
+    --tc-blue-dark: #004b7c;
+    --tc-bg: #f5f6f7;
+    --tc-border: #d8dcdf;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 12px;
+    background: var(--tc-bg);
+    color: #1c1f22;
+    font-size: 13px;
+  }
+  h1 {
+    font-size: 14px;
+    margin: 0 0 8px;
+  }
+  #status {
+    font-size: 12px;
+    color: #6a7278;
+    margin-bottom: 10px;
+    min-height: 16px;
+  }
+  #status.error { color: #b3261e; }
+
+  #fileList {
+    list-style: none;
+    margin: 0 0 12px;
+    padding: 0;
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--tc-border);
+    border-radius: 4px;
+    background: #fff;
+  }
+  #fileList li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--tc-border);
+  }
+  #fileList li:last-child { border-bottom: none; }
+  #fileList label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #emptyMsg {
+    padding: 14px 8px;
+    color: #6a7278;
+    text-align: center;
+  }
+
+  button {
+    width: 100%;
+    padding: 9px 10px;
+    background: var(--tc-blue);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:disabled {
+    background: #a9b3ba;
+    cursor: not-allowed;
+  }
+  button:not(:disabled):hover { background: var(--tc-blue-dark); }
+
+  #viewerWrap {
+    margin-top: 12px;
+    display: none;
+  }
+  #viewerWrap.visible { display: block; }
+  #viewerFrame {
+    width: 100%;
+    height: 420px;
+    border: 1px solid var(--tc-border);
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+  <h1>Top-Down Viewer</h1>
+  <div id="status">Connecting to Trimble Connect…</div>
+
+  <ul id="fileList"><li id="emptyMsg">Select design files in the Explorer to get started.</li></ul>
+
+  <button id="viewBtn" disabled>View top-down</button>
+
+  <div id="viewerWrap">
+    <iframe id="viewerFrame" title="3D Viewer" sandbox="allow-scripts allow-forms allow-same-origin allow-modals"></iframe>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------------------------------------------------------------------
+  // Config
+  // ---------------------------------------------------------------------
+  // The 3D Viewer application that will be embedded in an iframe once the
+  // user asks for a top-down view. Region-specific hosts exist too
+  // (e.g. EU) — swap this if your project lives in another region.
+  var VIEWER_EMBED_URL = "https://3d.connect.trimble.com";
+
+  // ---------------------------------------------------------------------
+  // State
+  // ---------------------------------------------------------------------
+  var hostAPI = null;          // WorkspaceAPI connected to the parent Explorer UI
+  var viewerAPI = null;        // WorkspaceAPI connected to the embedded 3D Viewer iframe
+  var selectedFiles = [];      // ConnectFile[] currently ticked from the explorer selection
+  var currentProject = null;   // ConnectProject
+  var accessToken = null;
+
+  var statusEl = document.getElementById("status");
+  var listEl = document.getElementById("fileList");
+  var viewBtn = document.getElementById("viewBtn");
+  var viewerWrap = document.getElementById("viewerWrap");
+  var viewerFrame = document.getElementById("viewerFrame");
+
+  function setStatus(msg, isError) {
+    statusEl.textContent = msg;
+    statusEl.className = isError ? "error" : "";
+  }
+
+  // A "design file" here just means anything that Connect can assimilate
+  // into a 3D representation. We don't hard-block by extension since
+  // Connect supports dozens of CAD/BIM formats (IFC, SKP, RVT, NWD, DWG,
+  // DGN, TRB, ...); we simply filter out folders.
+  function isSelectableFile(item) {
+    return item && item.type === "FILE";
+  }
+
+  // ---------------------------------------------------------------------
+  // Render the checklist of currently-selected files
+  // ---------------------------------------------------------------------
+  function renderFileList() {
+    listEl.innerHTML = "";
+
+    if (!selectedFiles.length) {
+      var li = document.createElement("li");
+      li.id = "emptyMsg";
+      li.textContent = "Select design files in the Explorer to get started.";
+      listEl.appendChild(li);
+      viewBtn.disabled = true;
+      return;
+    }
+
+    selectedFiles.forEach(function (file, idx) {
+      var li = document.createElement("li");
+
+      var checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = true;
+      checkbox.dataset.idx = String(idx);
+      checkbox.addEventListener("change", updateButtonState);
+
+      var label = document.createElement("label");
+      label.textContent = file.name || file.id;
+      label.title = file.name || file.id;
+
+      li.appendChild(checkbox);
+      li.appendChild(label);
+      listEl.appendChild(li);
+    });
+
+    updateButtonState();
+  }
+
+  function getCheckedFiles() {
+    var checkboxes = listEl.querySelectorAll("input[type=checkbox]");
+    var out = [];
+    checkboxes.forEach(function (cb) {
+      if (cb.checked) out.push(selectedFiles[Number(cb.dataset.idx)]);
+    });
+    return out;
+  }
+
+  function updateButtonState() {
+    viewBtn.disabled = getCheckedFiles().length === 0;
+  }
+
+  // ---------------------------------------------------------------------
+  // 1. Connect to the host (Trimble Connect Explorer)
+  // ---------------------------------------------------------------------
+  async function init() {
+    try {
+      hostAPI = await WorkspaceAPI.connect(window.parent, onHostEvent, 30000);
+      setStatus("Connected. Waiting for a file selection…");
+
+      currentProject = await hostAPI.project.getCurrentProject();
+
+      // Some hosts replay the current selection immediately; if not,
+      // the panel just waits for the first "extension.fileSelected" event.
+    } catch (err) {
+      console.error(err);
+      setStatus("Could not connect to Trimble Connect: " + err.message, true);
+    }
+  }
+
+  // Handles all events pushed down from the host application.
+  // See: https://components.connect.trimble.com/trimble-connect-workspace-api/modules.html
+  function onHostEvent(event, args) {
+    switch (event) {
+      case "extension.fileSelected":
+        // FileSelectArgumentEventCallback -> IFileSelectionData.
+        // The exact shape of `args.data` (single file vs. array) isn't
+        // pinned down in the public TypeDoc output, so this handles both.
+        var raw = args && args.data;
+        var files = [];
+        if (Array.isArray(raw)) {
+          files = raw;
+        } else if (raw && Array.isArray(raw.files)) {
+          files = raw.files;
+        } else if (raw && raw.file) {
+          files = [raw.file];
+        } else if (raw && raw.id) {
+          files = [raw];
+        }
+        selectedFiles = files.filter(isSelectableFile);
+        renderFileList();
+        setStatus(selectedFiles.length
+          ? selectedFiles.length + " file(s) selected."
+          : "No design files in the current selection.");
+        break;
+
+      case "extension.accessToken":
+        accessToken = args && args.data;
+        break;
+
+      case "extension.sessionInvalid":
+      case "extension.sessionLogOut":
+        setStatus("Session expired — reopen the extension.", true);
+        break;
+
+      default:
+        // no-op for events we don't care about
+        break;
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // 2. "View top-down" — embed the 3D Viewer and load the picked files
+  // ---------------------------------------------------------------------
+  async function onViewTopDown() {
+    var files = getCheckedFiles();
+    if (!files.length) return;
+
+    viewBtn.disabled = true;
+    setStatus("Requesting permission to load the 3D Viewer…");
+
+    try {
+      // Ask the host for a token we can hand to the embedded viewer.
+      // This triggers an "extension.accessToken" event handled above.
+      if (!accessToken) {
+        await hostAPI.extension.requestPermission("accesstoken");
+        accessToken = await waitFor(function () { return accessToken; }, 15000);
+      }
+
+      viewerWrap.classList.add("visible");
+      viewerFrame.src = VIEWER_EMBED_URL;
+
+      setStatus("Loading 3D Viewer…");
+      viewerAPI = await WorkspaceAPI.connect(viewerFrame.contentWindow, onViewerEvent, 30000);
+
+      // Hand the viewer our access token, then initialise it for this project.
+      // API names per Trimble's "Embed a Component" guide:
+      // https://developer.trimble.com/docs/connect/guides/embed/
+      await viewerAPI.embed.setTokens(accessToken);
+      await viewerAPI.embed.init3DViewer({ projectId: currentProject.id });
+
+      setStatus("Loading " + files.length + " model(s)…");
+
+      // Load every selected file as a model in the viewer. toggleModelVersion
+      // accepts an array, so all files load together (the viewer supports
+      // overlaying multiple models at once).
+      var modelVersions = files.map(function (f) {
+        return { modelId: f.id, versionId: f.versionId };
+      });
+      await viewerAPI.viewer.toggleModelVersion(modelVersions, true, true);
+
+      // Confirmed camera preset for a plan / top-down view.
+      // CameraPreset = "top" | "bottom" | "front" | "back" | "left" | "right"
+      await viewerAPI.viewer.setCamera("top");
+
+      setStatus("Top-down view ready.");
+    } catch (err) {
+      console.error(err);
+      setStatus("Couldn't open the top-down view: " + err.message, true);
+    } finally {
+      viewBtn.disabled = false;
+    }
+  }
+
+  function onViewerEvent(event, args) {
+    // Refresh the token if the embedded viewer's session drops.
+    if (event === "embed.session.invalid" || event === "extension.sessionInvalid") {
+      setStatus("Viewer session expired — try again.", true);
+    }
+  }
+
+  // Small helper: poll a getter until it returns a truthy value or time out.
+  function waitFor(getter, timeoutMs) {
+    return new Promise(function (resolve, reject) {
+      var start = Date.now();
+      (function poll() {
+        var v = getter();
+        if (v) return resolve(v);
+        if (Date.now() - start > timeoutMs) return reject(new Error("Timed out waiting for access token"));
+        setTimeout(poll, 150);
+      })();
+    });
+  }
+
+  viewBtn.addEventListener("click", onViewTopDown);
+  init();
+})();
+</script>
+</body>
+</html>
