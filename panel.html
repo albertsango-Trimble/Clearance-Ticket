@@ -8,7 +8,9 @@
 <!--
   Trimble Connect Workspace API (unified package).
   Docs: https://components.connect.trimble.com/trimble-connect-workspace-api/index.html
-  This IIFE build exposes a global `WorkspaceAPI` object.
+  NOTE: despite the docs' example code, this IIFE build exposes a global
+  named `TrimbleConnectWorkspace` (verified against the npm package's
+  dist/iife/trimbleconnect.workspace.api.js), not `WorkspaceAPI`.
 -->
 <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
 
@@ -205,7 +207,7 @@
   // ---------------------------------------------------------------------
   async function init() {
     try {
-      hostAPI = await WorkspaceAPI.connect(window.parent, onHostEvent, 30000);
+      hostAPI = await TrimbleConnectWorkspace.connect(window.parent, onHostEvent, 30000);
       setStatus("Connected. Waiting for a file selection…");
 
       currentProject = await hostAPI.project.getCurrentProject();
@@ -281,7 +283,7 @@
       viewerFrame.src = VIEWER_EMBED_URL;
 
       setStatus("Loading 3D Viewer…");
-      viewerAPI = await WorkspaceAPI.connect(viewerFrame.contentWindow, onViewerEvent, 30000);
+      viewerAPI = await TrimbleConnectWorkspace.connect(viewerFrame.contentWindow, onViewerEvent, 30000);
 
       // Hand the viewer our access token, then initialise it for this project.
       // API names per Trimble's "Embed a Component" guide:
