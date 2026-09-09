@@ -1,7 +1,7 @@
 {
   "title": "Top-Down Viewer",
   "description": "Select one or more design files in the Explorer and view them together from a top-down (plan) camera angle.",
-  "icon": "https://your-cdn.example.com/icons/topdown-32.png",
+  "icon": "https://albertsango-trimble.github.io/Clearance-Ticket/324362.png",
   "url": "https://albertsango-trimble.github.io/Clearance-Ticket/panel.html",
   "extensionType": ["project"],
   "type": "panel",
