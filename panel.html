@@ -208,6 +208,19 @@
   async function init() {
     try {
       hostAPI = await TrimbleConnectWorkspace.connect(window.parent, onHostEvent, 30000);
+
+      // This is the piece that actually makes the extension show up in
+      // Trimble Connect's left-hand navigation. Being "Enabled" in
+      // Apps & Capabilities only makes Connect load this panel's iframe
+      // somewhere in the background — the extension itself still has to
+      // register its own nav entry at runtime via ui.setMenu.
+      // See: https://components.connect.trimble.com/trimble-connect-workspace-api/interfaces/ExtensionMainMenu.html
+      await hostAPI.ui.setMenu({
+        title: "Top-Down Viewer",
+        icon: "",
+        command: "topdown_open"
+      });
+
       setStatus("Connected. Waiting for a file selection…");
 
       currentProject = await hostAPI.project.getCurrentProject();
@@ -224,6 +237,14 @@
   // See: https://components.connect.trimble.com/trimble-connect-workspace-api/modules.html
   function onHostEvent(event, args) {
     switch (event) {
+      case "extension.command":
+        // Fired when the user clicks this extension's nav entry (or a
+        // submenu, if we had any). We only have one menu item and render
+        // everything statically already, so there's nothing more to do
+        // here beyond logging it for visibility.
+        console.log("extension.command", args);
+        break;
+
       case "extension.fileSelected":
         // FileSelectArgumentEventCallback -> IFileSelectionData.
         // The exact shape of `args.data` (single file vs. array) isn't
