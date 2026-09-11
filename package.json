@@ -1,0 +1,9 @@
+{
+  "name": "tc-topdown-extension",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Trimble Connect project extension: top-down view of selected design files.",
+  "dependencies": {
+    "trimble-connect-workspace-api": "^0.3.34"
+  }
+}
