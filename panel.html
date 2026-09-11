@@ -6,13 +6,16 @@
 <title>Top-Down Viewer</title>
 
 <!--
-  Trimble Connect Workspace API (unified package).
-  Docs: https://components.connect.trimble.com/trimble-connect-workspace-api/index.html
-  NOTE: despite the docs' example code, this IIFE build exposes a global
-  named `TrimbleConnectWorkspace` (verified against the npm package's
-  dist/iife/trimbleconnect.workspace.api.js), not `WorkspaceAPI`.
+  Trimble Connect Workspace API — vendored locally from the
+  trimble-connect-workspace-api npm package (dist/iife build), rather than
+  loaded from Trimble's CDN, so the extension doesn't depend on
+  components.connect.trimble.com being reachable at runtime.
+  package: https://www.npmjs.com/package/trimble-connect-workspace-api
+  Confirmed by inspecting the bundle directly: this IIFE build exposes a
+  global named `TrimbleConnectWorkspace` (not `WorkspaceAPI`, as Trimble's
+  own docs example incorrectly shows).
 -->
-<script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
+<script src="./vendor/trimbleconnect.workspace.api.js"></script>
 
 <style>
   :root {
